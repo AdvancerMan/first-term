@@ -32,6 +32,7 @@ sub_long_long:
                 push            rdi
                 push            rsi
                 push            rcx
+                push            rax
 
                 clc
 .loop:
@@ -42,6 +43,7 @@ sub_long_long:
                 dec             rcx
                 jnz             .loop
 
+                pop             rax
                 pop             rcx
                 pop             rsi
                 pop             rdi
