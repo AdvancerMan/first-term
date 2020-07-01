@@ -4,15 +4,15 @@
                 extern          read_long, write_long, write_char
 _start:
                 
-                sub             rsp, 2 * long_integer_size * 8
-                lea             rdi, [rsp + long_integer_size * 8]
-                mov             rcx, long_integer_size
+                sub             rsp, 2 * LONG_INTEGER_SIZE * 8
+                lea             rdi, [rsp + LONG_INTEGER_SIZE * 8]
+                mov             rcx, LONG_INTEGER_SIZE
                 call            read_long
                 mov             rdi, rsp
                 call            read_long
                 
                 mov             rsi, rsp
-                lea             rdi, [rsp + long_integer_size * 8]
+                lea             rdi, [rsp + LONG_INTEGER_SIZE * 8]
                 call            sub_long_long
                 
                 call            write_long
@@ -55,5 +55,5 @@ exit:
                 syscall
 
                 section         .rodata
-long_integer_size: equ          128
+LONG_INTEGER_SIZE: equ          128
 
