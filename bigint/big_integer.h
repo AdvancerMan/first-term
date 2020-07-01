@@ -5,12 +5,13 @@
 #include <stdint.h>
 #include <utility>
 #include <vector>
+#include <climits>
 
 struct big_integer {
     using int_t = uint32_t;
     using double_int_t = uint64_t;
     using quad_int_t = __uint128_t;
-    static const int INT_T_BITS = 32;
+    static const int INT_T_BITS = sizeof(int_t) * CHAR_BIT;
     static const int_t INT_T_MAX = static_cast<int_t>(-1);
     using storage_t = std::vector<int_t>;
 

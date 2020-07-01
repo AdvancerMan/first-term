@@ -1,6 +1,6 @@
 #include "big_integer.h"
 
-#include <cstring>
+#include <string>
 #include <stdexcept>
 #include <iostream>
 #include <cstddef>
@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <tuple>
 #include <vector>
+#include <limits>
 
 big_integer::big_integer()
     : values(1, 0) {}
@@ -17,7 +18,22 @@ big_integer::big_integer(big_integer const& other)
     : values(other.values) {}
 
 big_integer::big_integer(int a)
-    : values(1, static_cast<int_t>(a)) {}
+    : values((std::numeric_limits<int>::digits + INT_T_BITS) / INT_T_BITS, 0) {
+
+    for (size_t i = 0; i < size(); i++) {
+        values[i] = static_cast<int_t>(a);
+
+        if (std::numeric_limits<int>::digits + 1 > INT_T_BITS) {
+            a >>= INT_T_BITS;
+        } else {
+            a = 0;
+        }
+    }
+
+    if ((std::numeric_limits<int>::digits + 1) % INT_T_BITS != 0) {
+        values.back() |= INT_T_MAX << ((std::numeric_limits<int>::digits + 1) % INT_T_BITS);
+    }
+}
 
 big_integer::big_integer(int_t a)
     : values({static_cast<int_t>(a), 0}) {}
@@ -25,7 +41,7 @@ big_integer::big_integer(int_t a)
 big_integer::big_integer(std::string const& str)
     : big_integer() {
     for (size_t i = str[0] == '-' ? 1 : 0; i < str.size(); i++) {
-        *this *= 10;
+        *this *= big_integer(int_t(10));
         *this += str[i] - '0';
     }
 
@@ -453,7 +469,7 @@ int compare_ints(big_integer::int_t a, big_integer::int_t b) {
 
 int big_integer::compare_to(big_integer const& rhs) const {
     if (is_negative() + rhs.is_negative() == 1) {
-        return is_negative() ? 1 : -1;
+        return is_negative() ? -1 : 1;
     }
 
     for (size_t i = std::max(size(), rhs.size()); i > 0; i--) {
