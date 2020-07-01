@@ -4,16 +4,16 @@
                 extern          set_zero, read_long, write_long, write_char
 _start:
                 
-                sub             rsp, 2 * long_integer_size * 8
-                lea             rdi, [rsp + long_integer_size * 8]
-                mov             rcx, long_integer_size
+                sub             rsp, 2 * LONG_INTEGER_SIZE * 8
+                lea             rdi, [rsp + LONG_INTEGER_SIZE * 8]
+                mov             rcx, LONG_INTEGER_SIZE
                 call            read_long
                 mov             rdi, rsp
                 call            read_long
                 
-                lea             rsi, [rsp + long_integer_size * 8]
+                lea             rsi, [rsp + LONG_INTEGER_SIZE * 8]
                 mov             rbx, rsp
-                lea             rsp, [rsp - 2 * long_integer_size * 8]
+                lea             rsp, [rsp - 2 * LONG_INTEGER_SIZE * 8]
                 mov             rdi, rsp
                 call            mul_long_long
                 
@@ -33,67 +33,57 @@ _start:
 ;    product is written to rdi
 ;    result length is 2 * rcx
 mul_long_long:
-                push            rax  ; copy of [r12] for mul
-                push            rdx  ; higher bits of 32-bit multiply --> carry for next digit
-                push            r8   ; carry for case when [r14] + rdx overflows
-                push            r9   ; counter for outer loop
-                push            r10  ; counter for inner loop
-                push            r12  ; pointer on multiplier #2 for inner loop 
-                push            rsi  ; pointer on multiplier #1 for outer loop
-                push            r13  ; copy of [rsi] for mul
-                push            rdi  ; pointer on result for outer loop
-                push            r14  ; pointer on result for inner loop
-                push            r15  ; temporary for adding to [r14]
+                mov             r13, rax  ; multiplier #1 digit
+                mov             r14, rdx  ; carry for next digit
+                mov             r15, r8   ; counter for outer loop * 8
+                push            r9        ; counter for inner loop * 8
+                push            r10       ; multiplier #2 digit
+                push            r11       ; temporary (carry = 1 or = 0)
+                push            r12       ; temporary
 
                 shl             rcx, 1
                 call            set_zero
-                shr             rcx, 1
+                shl             rcx, 2
                 
-                mov             r9, rcx
-.loop1:
-                mov             r10, rcx
-                mov             r12, rbx
-                mov             r14, rdi
-                
-                xor             rdx, rdx
-                clc
-.loop2:
-                mov             r15, [r14]
                 xor             r8, r8
-                add             r15, rdx
-                adc             r8, 0
+.loop1:
+                xor             r9, r9
                 xor             rdx, rdx
+.loop2:
+                lea             r12, [rdi + r8]
+                mov             r12, [r12 + r9]
+                xor             r11, r11
+                add             r12, rdx
+                adc             r11, 0
 
-                mov             rax, [r12]
-                mov             r13, [rsi]
-                mul             r13
-                add             r15, rax
-                adc             rdx, r8
-                mov             [r14], r15
+                xor             rdx, rdx
+                mov             rax, [rsi + r8]
+                mov             r10, [rbx + r9]
+                mul             r10
+                add             rax, r12
+                adc             rdx, r11
+                lea             r12, [rdi + r8]
+                mov             [r12 + r9], rax
 
-                lea             r12, [r12 + 8]
-                lea             r14, [r14 + 8]
-                dec             r10
-                jnz             .loop2
+                lea             r9, [r9 + 8]
+                cmp             r9, rcx
+                jne              .loop2
 
-                ; no overflow here because [r14] = 0
-                add             [r14], rdx
-                lea             rsi, [rsi + 8]
-                lea             rdi, [rdi + 8]
-                dec             r9
-                jnz             .loop1
-                
-                pop             r15
-                pop             r14
-                pop             rdi
-                pop             r13
-                pop             rsi
+                lea             r12, [rdi + r8]
+                mov             [r12 + r9], rdx
+                lea             r8, [r8 + 8]
+                cmp             r8, rcx
+                jne              .loop1
+
+                shr             rcx, 3
+
                 pop             r12
+                pop             r11
                 pop             r10
                 pop             r9
-                pop             r8
-                pop             rdx
-                pop             rax
+                mov             r8,  r15
+                mov             rdx, r14
+                mov             rax, r13
                 ret
 
 exit:
@@ -102,7 +92,4 @@ exit:
                 syscall
 
                 section         .rodata
-long_integer_size: equ          128
-invalid_char_msg:
-                db              "Invalid character: "
-invalid_char_msg_size: equ             $ - invalid_char_msg
+LONG_INTEGER_SIZE: equ          128
