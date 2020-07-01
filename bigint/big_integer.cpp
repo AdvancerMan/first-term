@@ -55,11 +55,10 @@ big_integer& big_integer::operator=(big_integer const& other)  {
     return *this;
 }
 
-big_integer& big_integer::operator+=(big_integer const& rhs) {
+big_integer& big_integer::sum_with(big_integer const& rhs, int_t carry) {
     int_t rest = get_rest();
     values.reserve(rhs.size());
 
-    int_t carry = 0;
     for (size_t i = 0; i < std::max(size(), rhs.size()); i++) {
         if (i == size()) {
             values.push_back(rest);
@@ -78,8 +77,12 @@ big_integer& big_integer::operator+=(big_integer const& rhs) {
     return *this;
 }
 
+big_integer& big_integer::operator+=(big_integer const& rhs) {
+    return sum_with(rhs, 0);
+}
+
 big_integer& big_integer::operator-=(big_integer const& rhs) {
-    return *this += -rhs;
+    return sum_with(~rhs, 1);
 }
 
 big_integer& big_integer::operator*=(big_integer const& rhs) {
@@ -124,7 +127,6 @@ std::tuple<big_integer, big_integer::int_t> big_integer::divide(int_t rhs) {
 
 // r and d have 0 on back() ==> size >= 2, d > 0
 big_integer::int_t trial(big_integer const& r, big_integer const& d, size_t k) {
-    using i = big_integer::int_t;
     using qi = big_integer::quad_int_t;
     int BITS = big_integer::INT_T_BITS;
 
@@ -134,7 +136,7 @@ big_integer::int_t trial(big_integer const& r, big_integer const& d, size_t k) {
 
     qi d2 = (static_cast<qi>(d.get(d.size() - 2)) << BITS)
            | static_cast<qi>(d.get(d.size() - 3));
-    return static_cast<i>(std::min(r3 / d2, static_cast<qi>(big_integer::INT_T_MAX)));
+    return static_cast<big_integer::int_t>(std::min(r3 / d2, static_cast<qi>(big_integer::INT_T_MAX)));
 }
 
 // this >= rhs > 0, this and rhs have 0 on back() ==> size >= 2
@@ -152,9 +154,7 @@ std::tuple<big_integer, big_integer> big_integer::long_divide(big_integer const&
         int_t qt = trial(r, d, k + rhs.size() - 2);
         big_integer dq = d * qt;
 
-        big_integer rk = r >> static_cast<int>(INT_T_BITS * (k - 1));
-
-        if (rk < dq) {
+        if (dq.compare_to(r, k - 1) == 1) {
             dq = d * --qt;
         }
         q.values[k - 1] = qt;
@@ -467,19 +467,23 @@ int compare_ints(big_integer::int_t a, big_integer::int_t b) {
     return a < b ? -1 : (a > b ? 1 : 0);
 }
 
-int big_integer::compare_to(big_integer const& rhs) const {
+int big_integer::compare_to(big_integer const& rhs, size_t offset) const {
     if (is_negative() + rhs.is_negative() == 1) {
         return is_negative() ? -1 : 1;
     }
 
-    for (size_t i = std::max(size(), rhs.size()); i > 0; i--) {
-        int ans = compare_ints(get(i - 1), rhs.get(i - 1));
+    for (size_t i = std::max(size(), rhs.size() < offset ? 0 : rhs.size() - offset); i > 0; i--) {
+        int ans = compare_ints(get(i - 1), rhs.get(i - 1 + offset));
         if (ans) {
             return ans;
         }
     }
 
     return 0;
+}
+
+int big_integer::compare_to(big_integer const& rhs) const {
+    return compare_to(rhs, 0);
 }
 
 big_integer& big_integer::negate_bits() {

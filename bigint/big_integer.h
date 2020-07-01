@@ -57,6 +57,8 @@ struct big_integer {
 
 private:
     big_integer(int_t);
+    int compare_to(big_integer const&, size_t offset) const;
+    big_integer& sum_with(big_integer const&, int_t carry);
     int_t get(size_t) const;
     int_t get_rest() const;
     size_t size() const;
