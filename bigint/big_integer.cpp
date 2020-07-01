@@ -24,6 +24,7 @@ big_integer::big_integer(int a)
         values[i] = static_cast<int_t>(a);
 
         if (std::numeric_limits<int>::digits + 1 > INT_T_BITS) {
+            // how to remove this warning?
             a >>= INT_T_BITS;
         } else {
             a = 0;
@@ -55,26 +56,30 @@ big_integer& big_integer::operator=(big_integer const& other)  {
     return *this;
 }
 
-big_integer& big_integer::sum_with(big_integer const& rhs, int_t carry) {
+big_integer& big_integer::sum_with(big_integer const& rhs, size_t my_offset, int_t carry) {
     int_t rest = get_rest();
-    values.reserve(rhs.size());
+    values.reserve(rhs.size() + my_offset);
 
-    for (size_t i = 0; i < std::max(size(), rhs.size()); i++) {
-        if (i == size()) {
+    for (size_t i = my_offset; i < std::max(size(), rhs.size() + my_offset); i++) {
+        while (i >= size()) {
             values.push_back(rest);
         }
 
         values[i] += carry;
         carry = get(i) < carry;
 
-        int_t value = rhs.get(i);
+        int_t value = rhs.get(i - my_offset);
         values[i] += value;
         carry = carry || get(i) < value;
     }
 
-    values.push_back(carry + rest + rhs.get(rhs.size()));
+    values.push_back(carry + rest + rhs.get_rest());
     shrink_to_fit();
     return *this;
+}
+
+big_integer& big_integer::sum_with(big_integer const& rhs, int_t carry) {
+    return sum_with(rhs, 0, carry);
 }
 
 big_integer& big_integer::operator+=(big_integer const& rhs) {
@@ -83,6 +88,10 @@ big_integer& big_integer::operator+=(big_integer const& rhs) {
 
 big_integer& big_integer::operator-=(big_integer const& rhs) {
     return sum_with(~rhs, 1);
+}
+
+big_integer& big_integer::diff_with(big_integer const& rhs, size_t my_offset) {
+    return sum_with(~rhs, my_offset, 1);
 }
 
 big_integer& big_integer::operator*=(big_integer const& rhs) {
@@ -159,7 +168,8 @@ std::tuple<big_integer, big_integer> big_integer::long_divide(big_integer const&
         }
         q.values[k - 1] = qt;
 
-        r -= dq << static_cast<int>(INT_T_BITS * (k - 1));
+        r.diff_with(dq, k - 1);
+//        r -= dq << static_cast<int>(INT_T_BITS * (k - 1));
         r.push_zero();
     }
 
