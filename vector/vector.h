@@ -60,6 +60,7 @@ private:
     void change_data(T* ptr, size_t size);  // O(N) strong
     static void destroy(T*, T*);            // O(N) nothrow
     void destroy_all();                     // O(N) nothrow
+    static void copy_and_construct(T* dst, T const* src, size_t size, T const* to_insert, size_t pos);
     static void copy_and_construct(T* dst, T const* src, size_t size);
 
     T* data_;
@@ -285,19 +286,7 @@ void vector<T>::resize_and_insert(size_t i, T const& e) {
     T* ptr = static_cast<T*>(operator new(cap * sizeof(T)));
 
     try {
-        copy_and_construct(ptr, data_, i);
-        try {
-            new(ptr + i) T(e);
-            try {
-                copy_and_construct(ptr + i + 1, data_ + i, size_ - i);
-            } catch(...) {
-                ptr[i].~T();
-                throw;
-            }
-        } catch(...) {
-            destroy(ptr, ptr + i);
-            throw;
-        }
+        copy_and_construct(ptr, data_, size_, &e, i);
     } catch(...) {
         operator delete(ptr);
         throw;
@@ -328,17 +317,25 @@ void vector<T>::destroy_all() {
 }
 
 template <typename T>
-void vector<T>::copy_and_construct(T* dst, T const* src, size_t size) {
+void vector<T>::copy_and_construct(T* dst, T const* src, size_t size, T const* to_insert, size_t pos) {
+    if (pos <= size) {
+        size++;
+    }
     size_t i = 0;
 
     try {
         for (; i < size; i++) {
-            new(dst + i) T(src[i]);
+            new(dst + i) T(i == pos ? *to_insert : src[i - (i > pos)]);
         }
     } catch(...) {
         destroy(dst, dst + i);
         throw;
     }
+}
+
+template <typename T>
+void vector<T>::copy_and_construct(T* dst, T const* src, size_t size) {
+    copy_and_construct(dst, src, size, nullptr, size + 1);
 }
 
 #endif // VECTOR_H
