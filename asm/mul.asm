@@ -33,13 +33,13 @@ _start:
 ;    product is written to rdi
 ;    result length is 2 * rcx
 mul_long_long:
-                mov             r13, rax  ; multiplier #1 digit
-                mov             r14, rdx  ; carry for next digit
-                mov             r15, r8   ; counter for outer loop * 8
-                push            r9        ; counter for inner loop * 8
-                push            r10       ; multiplier #2 digit
-                push            r11       ; temporary (carry = 1 or = 0)
-                push            r12       ; temporary
+                push            rax  ; multiplier #1 digit
+                push            rdx  ; carry for next digit
+                push            r8   ; counter for outer loop * 8
+                push            r9   ; counter for inner loop * 8
+                push            r10  ; multiplier #2 digit
+                push            r11  ; temporary (carry = 1 or = 0)
+                push            r12  ; temporary
 
                 shl             rcx, 1
                 call            set_zero
@@ -81,9 +81,9 @@ mul_long_long:
                 pop             r11
                 pop             r10
                 pop             r9
-                mov             r8,  r15
-                mov             rdx, r14
-                mov             rax, r13
+                pop             r8
+                pop             rdx
+                pop             rax
                 ret
 
 exit:
