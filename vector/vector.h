@@ -1,15 +1,12 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
-#include <cstdlib>
-#include <iostream>
-#include <cassert>
 #include <algorithm>
 
 template <typename T>
 struct vector {
-    typedef T* iterator;
-    typedef T const* const_iterator;
+    using iterator = T*;
+    using const_iterator = T const*;
 
     vector();                               // O(1) nothrow
     vector(vector const&);                  // O(N) strong
@@ -52,15 +49,14 @@ struct vector {
     iterator erase(const_iterator pos);     // O(N) weak
     iterator erase(const_iterator first, const_iterator last); // O(N) weak
 
-    vector<T> splice(const_iterator first);       // O(N) strong
+    vector splice(const_iterator first);       // O(N) strong
 
 private:
-    void resize(size_t);                    // O(N) strong
+    void change_capacity(size_t);                    // O(N) strong
     void resize_and_insert(size_t i, T const&);  // O(N) strong if (i == size) else weak
     void change_data(T* ptr, size_t size);  // O(N) strong
     static void destroy(T*, T*);            // O(N) nothrow
     void destroy_all();                     // O(N) nothrow
-    static void copy_and_construct(T* dst, T const* src, size_t size, T const* to_insert, size_t pos);
     static void copy_and_construct(T* dst, T const* src, size_t size);
 
     T* data_;
@@ -146,7 +142,7 @@ T const& vector<T>::back() const {
 
 template <typename T>
 void vector<T>::push_back(T const& e) {
-    insert(data_ + size_, e);
+    insert(end(), e);
 }
 
 template <typename T>
@@ -167,14 +163,14 @@ size_t vector<T>::capacity() const {
 template <typename T>
 void vector<T>::reserve(size_t size) {
     if (size > capacity_) {
-        resize(size);
+        change_capacity(size);
     }
 }
 
 template <typename T>
 void vector<T>::shrink_to_fit() {
     if (capacity_ != size_) {
-        resize(size_);
+        change_capacity(size_);
     }
 }
 
@@ -217,11 +213,11 @@ typename vector<T>::iterator vector<T>::insert(const_iterator it, T const& e) {
     if (size_ == capacity_) {
         resize_and_insert(pos, e);
     } else {
-        vector<T> tail = splice(it);
-        new(data_ + pos) T(e);
+        new(end()) T(e);
+        for (size_t i = size_; i > pos; i--) {
+            std::swap(data_[i], data_[i - 1]);
+        }
         size_++;
-        copy_and_construct(data_ + pos + 1, tail.data_, tail.size_);
-        size_ += tail.size_;
     }
 
     return data_ + pos;
@@ -246,24 +242,22 @@ typename vector<T>::iterator vector<T>::erase(const_iterator first, const_iterat
     return data_ + pos;
 }
 
-
 template <typename T>
 vector<T> vector<T>::splice(const_iterator first) {
     vector<T> res;
-    res.reserve(data_ + size_ - first);
+    res.reserve(end() - first);
 
-    for (const_iterator it = first; it != data_ + size_; it++) {
+    for (const_iterator it = first; it != end(); it++) {
         res.push_back(*it);
     }
 
-    destroy(const_cast<iterator>(first), data_ + size_);
+    destroy(const_cast<iterator>(first), end());
     size_ = first - data_;
     return res;
 }
 
 template <typename T>
-void vector<T>::resize(size_t size) {
-    assert(size_ <= size);
+void vector<T>::change_capacity(size_t size) {
     if (size == 0) {
         operator delete(data_);
         data_ = nullptr;
@@ -276,32 +270,42 @@ void vector<T>::resize(size_t size) {
             operator delete(ptr);
             throw;
         }
+        destroy_all();
+        operator delete(data_);
         change_data(ptr, size);
     }
 }
 
 template <typename T>
 void vector<T>::resize_and_insert(size_t i, T const& e) {
-    size_t cap = capacity_ ? capacity_ * 2 : 1;
+    size_t cap = capacity_ != 0 ? capacity_ * 2 : 1;
     T* ptr = static_cast<T*>(operator new(cap * sizeof(T)));
 
+    size_t ptr_sz = 0;
     try {
-        copy_and_construct(ptr, data_, size_, &e, i);
+        copy_and_construct(ptr, data_, i);
+        ptr_sz += i;
+
+        new(ptr + i) T(e);
+        ptr_sz++;
+
+        copy_and_construct(ptr + i + 1, data_ + i, size_ - i);
     } catch(...) {
+        destroy(ptr, ptr + ptr_sz);
         operator delete(ptr);
         throw;
     }
 
+    destroy_all();
+    operator delete(data_);
     change_data(ptr, cap);
     size_++;
 }
 
 template <typename T>
 void vector<T>::change_data(T* data, size_t capacity) {
-    destroy_all();
     std::swap(data_, data);
     capacity_ = capacity;
-    operator delete(data);
 }
 
 template <typename T>
@@ -313,29 +317,21 @@ void vector<T>::destroy(T* first, T* last) {
 
 template <typename T>
 void vector<T>::destroy_all() {
-    destroy(data_, data_ + size_);
+    destroy(data_, end());
 }
 
 template <typename T>
-void vector<T>::copy_and_construct(T* dst, T const* src, size_t size, T const* to_insert, size_t pos) {
-    if (pos <= size) {
-        size++;
-    }
+void vector<T>::copy_and_construct(T* dst, T const* src, size_t size) {
     size_t i = 0;
 
     try {
         for (; i < size; i++) {
-            new(dst + i) T(i == pos ? *to_insert : src[i - (i > pos)]);
+            new(dst + i) T(src[i]);
         }
     } catch(...) {
         destroy(dst, dst + i);
         throw;
     }
-}
-
-template <typename T>
-void vector<T>::copy_and_construct(T* dst, T const* src, size_t size) {
-    copy_and_construct(dst, src, size, nullptr, size + 1);
 }
 
 #endif // VECTOR_H
