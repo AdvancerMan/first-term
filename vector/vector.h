@@ -53,7 +53,7 @@ struct vector {
 
 private:
     void change_capacity(size_t);                    // O(N) strong
-    void resize_and_insert(size_t i, T const&);  // O(N) strong if (i == size) else weak
+    void change_capacity_and_insert(size_t i, T const&);  // O(N) strong if (i == size) else weak
     void change_data(T* ptr, size_t size);  // O(N) strong
     static void destroy(T*, T*);            // O(N) nothrow
     void destroy_all();                     // O(N) nothrow
@@ -211,7 +211,7 @@ template <typename T>
 typename vector<T>::iterator vector<T>::insert(const_iterator it, T const& e) {
     ptrdiff_t pos = it - data_;
     if (size_ == capacity_) {
-        resize_and_insert(pos, e);
+        change_capacity_and_insert(pos, e);
     } else {
         new(end()) T(e);
         for (size_t i = size_; i > pos; i--) {
@@ -277,7 +277,7 @@ void vector<T>::change_capacity(size_t size) {
 }
 
 template <typename T>
-void vector<T>::resize_and_insert(size_t i, T const& e) {
+void vector<T>::change_capacity_and_insert(size_t i, T const& e) {
     size_t cap = capacity_ != 0 ? capacity_ * 2 : 1;
     T* ptr = static_cast<T*>(operator new(cap * sizeof(T)));
 
