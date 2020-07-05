@@ -49,11 +49,11 @@ struct vector {
     iterator erase(const_iterator pos);     // O(N) weak
     iterator erase(const_iterator first, const_iterator last); // O(N) weak
 
-    vector splice(const_iterator first);       // O(N) strong
+    vector splice(const_iterator first);    // O(N) strong
 
 private:
-    void change_capacity(size_t);                    // O(N) strong
-    void change_capacity_and_insert(size_t i, T const&);  // O(N) strong if (i == size) else weak
+    void change_capacity(size_t);           // O(N) strong
+    void change_capacity_and_push_back(T const&);    // O(N) strong
     void change_data(T* ptr, size_t size);  // O(N) strong
     static void destroy(T*, T*);            // O(N) nothrow
     void destroy_all();                     // O(N) nothrow
@@ -142,7 +142,12 @@ T const& vector<T>::back() const {
 
 template <typename T>
 void vector<T>::push_back(T const& e) {
-    insert(end(), e);
+    if (size_ == capacity_) {
+        change_capacity_and_push_back(e);
+    } else {
+        new(end()) T(e);
+        size_++;
+    }
 }
 
 template <typename T>
@@ -210,14 +215,9 @@ typename vector<T>::const_iterator vector<T>::end() const {
 template <typename T>
 typename vector<T>::iterator vector<T>::insert(const_iterator it, T const& e) {
     ptrdiff_t pos = it - data_;
-    if (size_ == capacity_) {
-        change_capacity_and_insert(pos, e);
-    } else {
-        new(end()) T(e);
-        for (size_t i = size_; i > pos; i--) {
-            std::swap(data_[i], data_[i - 1]);
-        }
-        size_++;
+    push_back(e);
+    for (size_t i = size_ - 1; i > pos; i--) {
+        std::swap(data_[i], data_[i - 1]);
     }
 
     return data_ + pos;
@@ -277,21 +277,19 @@ void vector<T>::change_capacity(size_t size) {
 }
 
 template <typename T>
-void vector<T>::change_capacity_and_insert(size_t i, T const& e) {
+void vector<T>::change_capacity_and_push_back(T const& e) {
     size_t cap = capacity_ != 0 ? capacity_ * 2 : 1;
     T* ptr = static_cast<T*>(operator new(cap * sizeof(T)));
 
-    size_t ptr_sz = 0;
     try {
-        copy_and_construct(ptr, data_, i);
-        ptr_sz += i;
-
-        new(ptr + i) T(e);
-        ptr_sz++;
-
-        copy_and_construct(ptr + i + 1, data_ + i, size_ - i);
+        copy_and_construct(ptr, data_, size_);
+        try {
+            new(ptr + size_) T(e);
+        } catch(...) {
+            destroy(ptr, ptr + size_);
+            throw;
+        }
     } catch(...) {
-        destroy(ptr, ptr + ptr_sz);
         operator delete(ptr);
         throw;
     }
