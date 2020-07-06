@@ -10,9 +10,11 @@ template <typename T>
 struct optimized_storage {
     optimized_storage(size_t size);
     optimized_storage(size_t size, T const& value);
+    ~optimized_storage();
 
     optimized_storage(optimized_storage const&);
     optimized_storage& operator=(optimized_storage const&);
+
 
     T const& operator[](size_t) const;
     T& operator[](size_t);
@@ -98,6 +100,13 @@ optimized_storage<T>::optimized_storage(size_t size, T const& value)
         std::fill(values, values + size_, value);
     } else {
         buf = buffer::allocate_buffer(size_, size_, value);
+    }
+}
+
+template <typename T>
+optimized_storage<T>::~optimized_storage() {
+    if (size_ > SMALL_SIZE) {
+        buf->unshare();
     }
 }
 
