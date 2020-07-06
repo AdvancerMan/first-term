@@ -5,14 +5,14 @@
 #include <stdint.h>
 #include <utility>
 #include <vector>
-#include <climits>
+#include <limits>
 
 struct big_integer {
     using int_t = uint32_t;
     using double_int_t = uint64_t;
     using quad_int_t = __uint128_t;
-    static const int INT_T_BITS = sizeof(int_t) * CHAR_BIT;
-    static const int_t INT_T_MAX = static_cast<int_t>(-1);
+    static const int INT_T_BITS = std::numeric_limits<int_t>::digits;
+    static const int_t INT_T_MAX = std::numeric_limits<int_t>::max();
     using storage_t = std::vector<int_t>;
 
     big_integer();
@@ -65,7 +65,8 @@ private:
     int_t get_rest() const;
     size_t size() const;
     big_integer& push_zero();
-    big_integer& bit_operation(int_t (int_t, int_t), big_integer const&);
+    big_integer& bit_operation(big_integer const&, int_t (int_t, int_t));
+    static void big_int_shrink_to_fit(std::vector<int_t> &);
     void shrink_to_fit();
     std::tuple<big_integer, int_t> divide(int_t rhs);
     std::tuple<big_integer, big_integer> long_divide(big_integer const& rhs);
