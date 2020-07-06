@@ -20,18 +20,19 @@ big_integer::big_integer(big_integer const& other)
 
 big_integer::big_integer(int a)
     : values((std::numeric_limits<int>::digits + INT_T_BITS) / INT_T_BITS, 0) {
+    int copy = a;
 
     for (size_t i = 0; i < size(); i++) {
-        values[i] = static_cast<int_t>(a);
+        values[i] = static_cast<int_t>(copy);
 
         if (std::numeric_limits<int>::digits + 1 > INT_T_BITS) {
-            a >>= INT_T_BITS;
+            copy >>= INT_T_BITS;
         } else {
-            a = 0;
+            copy = 0;
         }
     }
 
-    if ((std::numeric_limits<int>::digits + 1) % INT_T_BITS != 0) {
+    if ((std::numeric_limits<int>::digits + 1) % INT_T_BITS != 0 && a < 0) {
         values.back() |= INT_T_MAX << ((std::numeric_limits<int>::digits + 1) % INT_T_BITS);
     }
 }
@@ -47,7 +48,7 @@ big_integer::big_integer(std::string const& str)
         throw std::runtime_error("Empty string argument for big_integer(string)");
     }
 
-    for (size_t i = str[0] == '-' ? 1 : 0; i < str.size(); i++) {
+    for (size_t i = str[0] == '-' || str[0] == '+' ? 1 : 0; i < str.size(); i++) {
         if (str[i] < '0' || '9' < str[i]) {
             std::string msg = "Invalid character for string integer: ";
             msg.push_back(str[i]);
@@ -68,13 +69,9 @@ big_integer& big_integer::operator=(big_integer const& other)  {
 }
 
 big_integer& big_integer::sum_with(big_integer const& rhs, size_t my_offset, int_t carry) {
-    int_t rest = get_rest();
-    values.reserve(rhs.size() + my_offset + 1);
-    while (size() < rhs.size() + my_offset) {
-        values.push_back(rest);
-    }
+    values.resize(std::max(rhs.size() + my_offset, size() + 1), get_rest());
 
-    for (size_t i = my_offset; i < size(); i++) {
+    for (size_t i = my_offset; i < size() - 1; i++) {
         values[i] += carry;
         carry = values[i] < carry;
 
@@ -83,7 +80,7 @@ big_integer& big_integer::sum_with(big_integer const& rhs, size_t my_offset, int
         carry = carry || values[i] < value;
     }
 
-    values.push_back(carry + rest + rhs.get_rest());
+    values.back() = carry + get_rest() + rhs.get_rest();
     shrink_to_fit();
     return *this;
 }
@@ -235,15 +232,15 @@ std::tuple<big_integer, big_integer> big_integer::divide(big_integer rhs)  {
 
     if (neg) {
         if (rhs.is_negative()) {
-            return {std::move(q), -std::move(r)};
+            return {q, -r};
         } else {
-            return {-std::move(q), -std::move(r)};
+            return {-q, -r};
         }
     } else {
         if (rhs.is_negative()) {
-            return {-std::move(q), std::move(r)};
+            return {-q, r};
         } else {
-            return {std::move(q), std::move(r)};
+            return {q, r};
         }
     }
 }
@@ -263,9 +260,8 @@ big_integer& big_integer::operator%=(big_integer const& rhs) {
 }
 
 big_integer& big_integer::bit_operation(big_integer const& rhs, int_t f(int_t, int_t)) {
-    values.reserve(rhs.size());
-    while (size() < rhs.size()) {
-        values.push_back(get_rest());
+    if (size() < rhs.size()) {
+        values.resize(rhs.size(), get_rest());
     }
 
     for (size_t i = 0; i < size(); i++) {
@@ -293,10 +289,7 @@ big_integer& big_integer::operator<<=(int rhs_int) {
     size_t in_block = rhs % INT_T_BITS;
     size_t out_block = INT_T_BITS - in_block;
 
-    values.reserve(size() + blocks + 1);
-    for (size_t i = 0; i <= blocks; i++) {
-        values.push_back(get_rest());
-    }
+    values.resize(size() + blocks + 1, get_rest());
 
     for (size_t i = size(), j = size() - blocks; j > 0; i--, j--) {
         values[i - 1] = values[j - 1];
