@@ -216,15 +216,16 @@ big_integer& big_integer::push_zero() {
 
 std::tuple<big_integer, big_integer> big_integer::divide(big_integer rhs)  {
     // Division by zero is checked in divide(int_t)
+    big_integer copy(*this);
     bool neg = is_negative();
     if (neg) {
-        negate();
+        copy.negate();
     }
-    push_zero();
+    copy.push_zero();
 
     rhs.shrink_to_fit();
     big_integer q, r;
-    std::tie(q, r) = divide_positive(rhs.is_negative() ? (-rhs).push_zero() : rhs.push_zero());
+    std::tie(q, r) = copy.divide_positive(rhs.is_negative() ? (-rhs).push_zero() : rhs.push_zero());
 
     // from unsigned big_int to signed
     q.push_zero();
@@ -232,10 +233,7 @@ std::tuple<big_integer, big_integer> big_integer::divide(big_integer rhs)  {
     q.shrink_to_fit();
     r.shrink_to_fit();
 
-
     if (neg) {
-        negate();
-
         if (rhs.is_negative()) {
             return {std::move(q), -std::move(r)};
         } else {
