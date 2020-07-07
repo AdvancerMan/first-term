@@ -10,6 +10,7 @@
 #include <tuple>
 #include <vector>
 #include <limits>
+#include <utility>
 
 big_integer::big_integer()
     : values(1, 0) {}
@@ -19,19 +20,19 @@ big_integer::big_integer(big_integer const& other)
 
 big_integer::big_integer(int a)
     : values((std::numeric_limits<int>::digits + INT_T_BITS) / INT_T_BITS, 0) {
+    int copy = a;
 
     for (size_t i = 0; i < size(); i++) {
-        values[i] = static_cast<int_t>(a);
+        values[i] = static_cast<int_t>(copy);
 
         if (std::numeric_limits<int>::digits + 1 > INT_T_BITS) {
-            // how to remove this warning?
-            a >>= INT_T_BITS;
+            copy >>= INT_T_BITS;
         } else {
-            a = 0;
+            copy = 0;
         }
     }
 
-    if ((std::numeric_limits<int>::digits + 1) % INT_T_BITS != 0) {
+    if ((std::numeric_limits<int>::digits + 1) % INT_T_BITS != 0 && a < 0) {
         values.back() |= INT_T_MAX << ((std::numeric_limits<int>::digits + 1) % INT_T_BITS);
     }
 }
@@ -43,7 +44,16 @@ big_integer::big_integer(int_t a)
 
 big_integer::big_integer(std::string const& str)
     : big_integer() {
-    for (size_t i = str[0] == '-' ? 1 : 0; i < str.size(); i++) {
+    if (str.empty()) {
+        throw std::runtime_error("Empty string argument for big_integer(string)");
+    }
+
+    for (size_t i = str[0] == '-' || str[0] == '+' ? 1 : 0; i < str.size(); i++) {
+        if (str[i] < '0' || '9' < str[i]) {
+            std::string msg = "Invalid character for string integer: ";
+            msg.push_back(str[i]);
+            throw std::runtime_error(msg);
+        }
         *this *= big_integer(int_t(10));
         *this += str[i] - '0';
     }
@@ -59,23 +69,18 @@ big_integer& big_integer::operator=(big_integer const& other)  {
 }
 
 big_integer& big_integer::sum_with(big_integer const& rhs, size_t my_offset, int_t carry) {
-    int_t rest = get_rest();
-    values.reserve(rhs.size() + my_offset);
+    values.resize(std::max(rhs.size() + my_offset, size() + 1), get_rest());
 
-    for (size_t i = my_offset; i < std::max(size(), rhs.size() + my_offset); i++) {
-        while (i >= size()) {
-            values.push_back(rest);
-        }
-
+    for (size_t i = my_offset; i < size() - 1; i++) {
         values[i] += carry;
-        carry = get(i) < carry;
+        carry = values[i] < carry;
 
         int_t value = rhs.get(i - my_offset);
         values[i] += value;
-        carry = carry || get(i) < value;
+        carry = carry || values[i] < value;
     }
 
-    values.push_back(carry + rest + rhs.get_rest());
+    values.back() = carry + get_rest() + rhs.get_rest();
     shrink_to_fit();
     return *this;
 }
@@ -107,9 +112,9 @@ big_integer& big_integer::operator*=(big_integer const& rhs) {
         int_t carry = 0;
         for (size_t j = i; j - i < rhs_copy.size() || (carry && j < size()); j++) {
             double_int_t res = static_cast<double_int_t>(carry)
-                             + static_cast<double_int_t>(get(j));
+                             + static_cast<double_int_t>(values[j]);
             if (j - i < rhs_copy.size()) {
-                res += static_cast<double_int_t>(copy.get(i))
+                res += static_cast<double_int_t>(copy.values[i])
                      * static_cast<double_int_t>(rhs_copy.get(j - i));
             }
             values[j] = static_cast<int_t>(res);
@@ -121,14 +126,18 @@ big_integer& big_integer::operator*=(big_integer const& rhs) {
     return was_neg ? this->negate() : *this;
 }
 
-// *this >= 0, rhs > 0
+// *this >= 0, rhs >= 0
 std::tuple<big_integer, big_integer::int_t> big_integer::divide(int_t rhs) {
+    if (rhs == 0) {
+        throw std::runtime_error("Division by zero");
+    }
+
     double_int_t carry = 0;
     big_integer res = 0;
     res.values.assign(size(), 0);
 
     for (size_t i = size(); i > 0; i--) {
-        carry = (carry << INT_T_BITS) + get(i - 1);
+        carry = (carry << INT_T_BITS) + values[i - 1];
         res.values[i - 1] = static_cast<int_t>(carry / rhs);
         carry = carry % rhs;
     }
@@ -145,8 +154,8 @@ big_integer::int_t trial(big_integer const& r, big_integer const& d, size_t k) {
           | (static_cast<qi>(r.get(k - 1)) <<  BITS      )
           |  static_cast<qi>(r.get(k - 2));
 
-    qi d2 = (static_cast<qi>(d.get(d.size() - 2)) << BITS)
-           | static_cast<qi>(d.get(d.size() - 3));
+    qi d2 = (static_cast<qi>(d.values[d.size() - 2]) << BITS)
+           | static_cast<qi>(d.values[d.size() - 3]);
     return static_cast<big_integer::int_t>(std::min(r3 / d2, static_cast<qi>(big_integer::INT_T_MAX)));
 }
 
@@ -154,7 +163,7 @@ big_integer::int_t trial(big_integer const& r, big_integer const& d, size_t k) {
 std::tuple<big_integer, big_integer> big_integer::long_divide(big_integer const& rhs) {
     int_t f = static_cast<int_t>(
                     (static_cast<double_int_t>(1) << INT_T_BITS)
-                  / (static_cast<double_int_t>(rhs.get(rhs.size() - 2)) + 1)
+                  / (static_cast<double_int_t>(rhs.values[rhs.size() - 2]) + 1)
               );
     big_integer r = (*this * f).push_zero();
     big_integer d = (  rhs * f).push_zero();
@@ -171,7 +180,6 @@ std::tuple<big_integer, big_integer> big_integer::long_divide(big_integer const&
         q.values[k - 1] = qt;
 
         r.diff_with(dq, k - 1);
-//        r -= dq << static_cast<int>(INT_T_BITS * (k - 1));
         r.push_zero();
     }
 
@@ -184,7 +192,7 @@ std::tuple<big_integer, big_integer> big_integer::divide_positive(big_integer co
     if (rhs.size() <= 2) {
         big_integer q;
         int_t r;
-        std::tie(q, r) = divide(rhs.get(0));
+        std::tie(q, r) = divide(rhs.values[0]);
         return {q, r};
     }
 
@@ -204,14 +212,17 @@ big_integer& big_integer::push_zero() {
 }
 
 std::tuple<big_integer, big_integer> big_integer::divide(big_integer rhs)  {
+    // Division by zero is checked in divide(int_t)
+    big_integer copy(*this);
     bool neg = is_negative();
     if (neg) {
-        negate();
+        copy.negate();
     }
-    push_zero();
+    copy.push_zero();
 
+    rhs.shrink_to_fit();
     big_integer q, r;
-    std::tie(q, r) = divide_positive(rhs.is_negative() ? (-rhs).push_zero() : rhs.push_zero());
+    std::tie(q, r) = copy.divide_positive(rhs.is_negative() ? (-rhs).push_zero() : rhs.push_zero());
 
     // from unsigned big_int to signed
     q.push_zero();
@@ -219,10 +230,7 @@ std::tuple<big_integer, big_integer> big_integer::divide(big_integer rhs)  {
     q.shrink_to_fit();
     r.shrink_to_fit();
 
-
     if (neg) {
-        negate();
-
         if (rhs.is_negative()) {
             return {q, -r};
         } else {
@@ -251,40 +259,28 @@ big_integer& big_integer::operator%=(big_integer const& rhs) {
     return *this;
 }
 
-big_integer& big_integer::bit_operation(int_t f(int_t, int_t), big_integer const& rhs) {
-    while (size() < rhs.size()) {
-        values.push_back(get_rest());
+big_integer& big_integer::bit_operation(big_integer const& rhs, int_t f(int_t, int_t)) {
+    if (size() < rhs.size()) {
+        values.resize(rhs.size(), get_rest());
     }
 
     for (size_t i = 0; i < size(); i++) {
-        values[i] = (*f)(get(i), rhs.get(i));
+        values[i] = (*f)(values[i], rhs.get(i));
     }
     shrink_to_fit();
     return *this;
 }
 
-big_integer::int_t myand(big_integer::int_t a, big_integer::int_t b) {
-    return a & b;
-}
-
 big_integer& big_integer::operator&=(big_integer const& rhs) {
-    return bit_operation(&myand, rhs);
-}
-
-big_integer::int_t myor(big_integer::int_t a, big_integer::int_t b) {
-    return a | b;
+    return bit_operation(rhs, [](big_integer::int_t a, big_integer::int_t b) { return a & b; });
 }
 
 big_integer& big_integer::operator|=(big_integer const& rhs) {
-    return bit_operation(&myor, rhs);
-}
-
-big_integer::int_t myxor(big_integer::int_t a, big_integer::int_t b) {
-    return a ^ b;
+    return bit_operation(rhs, [](big_integer::int_t a, big_integer::int_t b) { return a | b; });
 }
 
 big_integer& big_integer::operator^=(big_integer const& rhs) {
-    return bit_operation(&myxor, rhs);
+    return bit_operation(rhs, [](big_integer::int_t a, big_integer::int_t b) { return a ^ b; });
 }
 
 big_integer& big_integer::operator<<=(int rhs_int) {
@@ -293,14 +289,12 @@ big_integer& big_integer::operator<<=(int rhs_int) {
     size_t in_block = rhs % INT_T_BITS;
     size_t out_block = INT_T_BITS - in_block;
 
-    for (size_t i = 0; i <= blocks; i++) {
-        values.push_back(get_rest());
-    }
+    values.resize(size() + blocks + 1, get_rest());
 
     for (size_t i = size(), j = size() - blocks; j > 0; i--, j--) {
-        values[i - 1] = get(j - 1);
+        values[i - 1] = values[j - 1];
         if (i < size()) {
-            values[i] |= out_block == INT_T_BITS ? 0 : get(i - 1) >> out_block;
+            values[i] |= out_block == INT_T_BITS ? 0 : values[i - 1] >> out_block;
         }
         values[i - 1] <<= in_block;
         if (i != j) {
@@ -321,11 +315,11 @@ big_integer& big_integer::operator>>=(int rhs_int) {
 
     for (size_t i = 0, j = blocks; i < size(); i++, j++) {
         if (i > 0) {
-            values[i - 1] |= (get(j) & ((int_t(1) << in_block) - 1)) << out_block;
+            values[i - 1] |= (get(j) & ((static_cast<int_t>(1) << in_block) - 1)) << out_block;
         }
         values[i] = get(j) >> in_block;
     }
-    values.back() |= (rest & ((int_t(1) << in_block) - 1)) << out_block;
+    values.back() |= (rest & ((static_cast<int_t>(1) << in_block) - 1)) << out_block;
 
     shrink_to_fit();
     return *this;
@@ -348,7 +342,9 @@ big_integer& big_integer::operator++() {
 }
 
 big_integer big_integer::operator++(int) {
-    return *this += 1;
+    big_integer result(*this);
+    *this += 1;
+    return result;
 }
 
 big_integer& big_integer::operator--() {
@@ -356,7 +352,9 @@ big_integer& big_integer::operator--() {
 }
 
 big_integer big_integer::operator--(int) {
-    return *this -= 1;
+    big_integer result(*this);
+    *this -= 1;
+    return result;
 }
 
 bool operator==(big_integer const& a, big_integer const& b) {
@@ -490,7 +488,7 @@ int big_integer::compare_to(big_integer const& rhs) const {
 
 big_integer& big_integer::negate_bits() {
     for (size_t i = 0; i < size(); i++) {
-        values[i] = ~get(i);
+        values[i] = ~values[i];
     }
     return *this;
 }
@@ -515,5 +513,5 @@ void big_integer::swap(big_integer &other) {
 }
 
 big_integer::int_t big_integer::get_rest() const {
-    return get(size());
+    return is_negative() ? INT_T_MAX : 0;
 }
