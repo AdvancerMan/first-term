@@ -27,6 +27,7 @@ struct optimized_storage {
 
     void reserve(size_t);
     void assign(size_t, T const&);
+    void resize(size_t, T const&);
 
     size_t size() const;
 private:
@@ -195,7 +196,7 @@ void optimized_storage<T>::pop_back() {
     }
 }
 
-// TODO doesn't work for SO
+// doesn't work for SO :(
 template <typename T>
 void optimized_storage<T>::reserve(size_t size) {
     if (size_ > SMALL_SIZE && size > buf->capacity) {
@@ -214,6 +215,36 @@ void optimized_storage<T>::assign(size_t size, T const& value) {
     } else {
         buf = buffer::allocate_buffer(size, size, value);
     }
+    size_ = size;
+}
+
+template <typename T>
+void optimized_storage<T>::resize(size_t size, T const& value) {
+    if (size_ <= SMALL_SIZE) {
+        if (size <= SMALL_SIZE) {
+            if (size_ < size) {
+                std::fill(values + size_, values + size, value);
+            }
+        } else {
+            buffer* tmp = buffer::allocate_buffer(size, size, value);
+            memcpy(tmp->values, values, sizeof(T) * size_);
+            buf = tmp;
+        }
+    } else {
+        if (size <= SMALL_SIZE) {
+            buffer* tmp = buf;
+            memcpy(values, tmp->values, sizeof(T) * size);
+            tmp->unshare();
+        } else {
+            if (buf->capacity < size) {
+                buf = buf->copy_and_unshare(size);
+            }
+            if (size_ < size) {
+                std::fill(buf->values + size_, buf->values + size, value);
+            }
+        }
+    }
+
     size_ = size;
 }
 
