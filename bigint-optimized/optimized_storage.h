@@ -4,11 +4,14 @@
 #include <cstddef>
 #include <cstring>
 #include <vector>
+#include "cow_buffer.h"
 
-// T is trivially constructible, trivially destructible and trivially copiable
 template <typename T>
 struct optimized_storage {
-    optimized_storage(size_t size);
+    static_assert(std::is_trivially_constructible<T>::value, "T should be trivially constructible");
+    static_assert(std::is_trivially_destructible<T>::value, "T should be trivially destructible");
+    static_assert(std::is_trivially_copyable<T>::value, "T should be trivially copyable");
+
     optimized_storage(size_t size, T const& value);
     ~optimized_storage();
 
@@ -22,140 +25,87 @@ struct optimized_storage {
     T const& back() const;
     T& back();
 
-    void push_back(T);
+    void push_back(T const&);
     void pop_back();
 
-    void reserve(size_t);
-    void assign(size_t, T const&);
+    void assign(size_t, T);
     void resize(size_t, T const&);
 
     size_t size() const;
+
+    void swap(optimized_storage &);
+
 private:
-    struct buffer {
-        buffer() = delete;
-        buffer(buffer const&) = delete;
-        buffer& operator=(buffer const&) = delete;
+    void become_big(buffer<T>* new_buffer);
+    void become_big(size_t cap, T const& value);
+    void become_big(size_t cap);
 
-        static buffer* allocate_buffer(size_t cap) {
-            buffer* res = reinterpret_cast<buffer*>(operator new(2 * sizeof(size_t) + cap * sizeof(T)));
-            res->count = 1;
-            res->capacity = cap;
-            return res;
-        }
+    static constexpr size_t SMALL_SIZE = sizeof(buffer<T>*) / sizeof(T);
 
-        static buffer* allocate_buffer(size_t cap, size_t size, T const& e) {
-            buffer* buf = allocate_buffer(cap);
-            std::fill(buf->values, buf->values + size, e);
-            return buf;
-        }
-
-        buffer* copy_and_unshare(size_t new_cap) {
-            buffer* res = allocate_buffer(new_cap);
-            memcpy(res->values, values, sizeof(T) * std::min(new_cap, capacity));
-            unshare();
-            return res;
-        }
-
-        void unshare() {
-            count--;
-            if (count == 0) {
-                operator delete(this);
-            }
-        }
-
-        buffer* share() {
-            count++;
-            return this;
-        }
-
-        T& get(size_t i) {
-            return values[i];
-        }
-
-        T const& get(size_t i) const {
-            return values[i];
-        }
-
-        size_t count;
-        size_t capacity;
-        T values[];
-    };
-
-    static const size_t SMALL_SIZE = sizeof(buffer*) / sizeof(T);
     size_t size_;
+    bool is_small_object;
 
     union {
-        buffer* buf;
+        buffer<T>* buf;
         T values[SMALL_SIZE];
-    };
+    } shared;
 };
 
 template <typename T>
-optimized_storage<T>::optimized_storage(size_t size)
-    : optimized_storage(size, 0) {}
-
-template <typename T>
 optimized_storage<T>::optimized_storage(size_t size, T const& value)
-    : size_(size) {
-    if (size_ <= SMALL_SIZE) {
-        std::fill(values, values + size_, value);
+    : size_(size)
+    , is_small_object(size <= SMALL_SIZE) {
+    if (is_small_object) {
+        std::fill(shared.values, shared.values + size_, value);
     } else {
-        buf = buffer::allocate_buffer(size_, size_, value);
-    }
-}
-
-template <typename T>
-optimized_storage<T>::~optimized_storage() {
-    if (size_ > SMALL_SIZE) {
-        buf->unshare();
+        shared.buf = buffer<T>::allocate_buffer(size_, value);
     }
 }
 
 template <typename T>
 optimized_storage<T>::optimized_storage(optimized_storage const& other)
-    : size_(other.size_) {
-    if (size_ <= SMALL_SIZE) {
-        memmove(values, other.values, sizeof(T) * size_);
+    : size_(other.size_)
+    , is_small_object(other.size_ <= SMALL_SIZE) {
+    if (is_small_object) {
+        if (other.is_small_object) {
+            std::copy(other.shared.values, other.shared.values + size_, shared.values);
+        } else {
+            std::copy(other.shared.buf->values, other.shared.buf->values + size_, shared.values);
+        }
     } else {
-        buf = other.buf->share();
+        shared.buf = other.shared.buf->share();
+    }
+}
+
+template <typename T>
+optimized_storage<T>::~optimized_storage() {
+    if (!is_small_object) {
+        shared.buf->unshare();
     }
 }
 
 template <typename T>
 optimized_storage<T>& optimized_storage<T>::operator=(optimized_storage const& other) {
-    buffer* tmp = nullptr;
-    if (other.size_ > SMALL_SIZE) {
-        tmp = other.buf->share();
-    }
-    if (size_ > SMALL_SIZE) {
-        buf->unshare();
-    }
-
-    if (other.size_ <= SMALL_SIZE) {
-        memmove(values, other.values, sizeof(T) * other.size_);
-    } else {
-        buf = tmp;
-    }
-
-    size_ = other.size_;
+    optimized_storage copy(other);
+    swap(copy);
     return *this;
 }
 
 template <typename T>
 T const& optimized_storage<T>::operator[](size_t i) const {
-    return size_ <= SMALL_SIZE ? values[i] : buf->get(i);
+    return is_small_object ? shared.values[i] : shared.buf->values[i];
 }
 
 template <typename T>
 T& optimized_storage<T>::operator[](size_t i) {
-    if (size_ <= SMALL_SIZE) {
-        return values[i];
+    if (is_small_object) {
+        return shared.values[i];
     }
 
-    if (buf->count > 1) {
-        buf = buf->copy_and_unshare(buf->capacity);
+    if (shared.buf->count > 1) {
+        shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity, size_);
     }
-    return buf->get(i);
+    return shared.buf->values[i];
 }
 
 template <typename T>
@@ -169,79 +119,65 @@ T& optimized_storage<T>::back() {
 }
 
 template <typename T>
-void optimized_storage<T>::push_back(T e) {
-    if (size_ == SMALL_SIZE) {
-        buffer* tmp = buffer::allocate_buffer(SMALL_SIZE * 2);
-        memcpy(tmp->values, values, sizeof(T) * SMALL_SIZE);
-        buf = tmp;
-    } else if (size_ > SMALL_SIZE) {
-        if (size_ == buf->capacity) {
-            buf = buf->copy_and_unshare(buf->capacity == 0 ? 1 : 2 * buf->capacity);
-        } else if (buf->count > 1) {
-            buf = buf->copy_and_unshare(buf->capacity);
+void optimized_storage<T>::push_back(T const& e) {
+    if ((is_small_object && size_ == SMALL_SIZE) ||
+            (!is_small_object && (size_ == shared.buf->capacity || shared.buf->count > 1))) {
+        T copy(e);
+
+        if (is_small_object) {
+            // size_ == SMALL_SIZE from first if
+            become_big(SMALL_SIZE * 2);
+        } else if (size_ == shared.buf->capacity) {
+            shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity == 0 ? 1 : 2 * shared.buf->capacity, size_);
+        } else {
+            // shared.buf->count > 1
+            shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity, size_);
         }
+        new(shared.buf->values + size_) T(copy);
+    } else {
+        new((is_small_object ? shared.values : shared.buf->values) + size_) T(e);
     }
 
     size_++;
-    back() = e;
 }
 
 template <typename T>
 void optimized_storage<T>::pop_back() {
-    if (--size_ == SMALL_SIZE) {
-        T tmp[size_];
-        memcpy(tmp, buf->values, sizeof(T) * size_);
-        buf->unshare();
-        memcpy(values, tmp, sizeof(T) * size_);
-    }
-}
-
-// doesn't work for SO :(
-template <typename T>
-void optimized_storage<T>::reserve(size_t size) {
-    if (size_ > SMALL_SIZE && size > buf->capacity) {
-        buf = buf->copy_and_unshare(size);
-    }
+    size_--;
 }
 
 template <typename T>
-void optimized_storage<T>::assign(size_t size, T const& value) {
-    if (size_ > SMALL_SIZE) {
-        buf->unshare();
-    }
-
-    if (size <= SMALL_SIZE) {
-        std::fill(values, values + size, value);
+void optimized_storage<T>::assign(size_t size, T value) {
+    resize(size, value);
+    if (is_small_object) {
+        std::fill(shared.values, shared.values + size, value);
     } else {
-        buf = buffer::allocate_buffer(size, size, value);
+        if (shared.buf->count > 1) {
+            shared.buf = shared.buf->copy_and_unshare(size, size_);
+        }
+        std::fill(shared.buf->values, shared.buf->values + size, value);
     }
-    size_ = size;
 }
 
 template <typename T>
 void optimized_storage<T>::resize(size_t size, T const& value) {
-    if (size_ <= SMALL_SIZE) {
+    if (is_small_object) {
         if (size <= SMALL_SIZE) {
             if (size_ < size) {
-                std::fill(values + size_, values + size, value);
+                std::fill(shared.values + size_, shared.values + size, value);
             }
         } else {
-            buffer* tmp = buffer::allocate_buffer(size, size, value);
-            memcpy(tmp->values, values, sizeof(T) * size_);
-            buf = tmp;
+            become_big(size, value);
         }
     } else {
-        if (size <= SMALL_SIZE) {
-            buffer* tmp = buf;
-            memcpy(values, tmp->values, sizeof(T) * size);
-            tmp->unshare();
-        } else {
-            if (buf->capacity < size) {
-                buf = buf->copy_and_unshare(size);
-            }
-            if (size_ < size) {
-                std::fill(buf->values + size_, buf->values + size, value);
-            }
+        // if buf should increase capacity OR we have to copy buf to fill size_..size with value
+        if (size > shared.buf->capacity || (size > size_ && shared.buf->count > 1)) {
+            // size > shared.buf->capacity ==> size > size_
+            T copy(value);
+            shared.buf = shared.buf->copy_and_unshare(std::max(size, shared.buf->capacity), size_);
+            std::fill(shared.buf->values + size_, shared.buf->values + size, copy);
+        } else if (size > size_) {
+            std::fill(shared.buf->values + size_, shared.buf->values + size, value);
         }
     }
 
@@ -251,6 +187,30 @@ void optimized_storage<T>::resize(size_t size, T const& value) {
 template <typename T>
 size_t optimized_storage<T>::size() const {
     return size_;
+}
+
+template <typename T>
+void optimized_storage<T>::swap(optimized_storage &other) {
+    std::swap(size_, other.size_);
+    std::swap(is_small_object, other.is_small_object);
+    std::swap(shared, other.shared);
+}
+
+template <typename T>
+void optimized_storage<T>::become_big(buffer<T> *new_buffer) {
+    std::copy(shared.values, shared.values + size_, new_buffer->values);
+    shared.buf = new_buffer;
+    is_small_object = false;
+}
+
+template <typename T>
+void optimized_storage<T>::become_big(size_t cap, T const& value) {
+    become_big(buffer<T>::allocate_buffer(cap, value));
+}
+
+template <typename T>
+void optimized_storage<T>::become_big(size_t cap) {
+    become_big(buffer<T>::allocate_buffer(cap));
 }
 
 #endif // OPTIMIZED_STORAGE_H
