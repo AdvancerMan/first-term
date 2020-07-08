@@ -23,6 +23,8 @@ struct buffer {
     void unshare();
     buffer* share();
 
+    bool not_unique() const;
+
     size_t count;
     size_t capacity;
     T values[];
@@ -63,6 +65,11 @@ template <typename T>
 buffer<T>* buffer<T>::share() {
     count++;
     return this;
+}
+
+template <typename T>
+bool buffer<T>::not_unique() const {
+    return count > 1;
 }
 
 #endif // COW_BUFFER_H
