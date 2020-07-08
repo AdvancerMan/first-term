@@ -102,7 +102,7 @@ T& optimized_storage<T>::operator[](size_t i) {
         return shared.values[i];
     }
 
-    if (shared.buf->count > 1) {
+    if (shared.buf->not_unique()) {
         shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity, size_);
     }
     return shared.buf->values[i];
@@ -121,7 +121,7 @@ T& optimized_storage<T>::back() {
 template <typename T>
 void optimized_storage<T>::push_back(T const& e) {
     if ((is_small_object && size_ == SMALL_SIZE) ||
-            (!is_small_object && (size_ == shared.buf->capacity || shared.buf->count > 1))) {
+            (!is_small_object && (size_ == shared.buf->capacity || shared.buf->not_unique()))) {
         T copy(e);
 
         if (is_small_object) {
@@ -130,7 +130,7 @@ void optimized_storage<T>::push_back(T const& e) {
         } else if (size_ == shared.buf->capacity) {
             shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity == 0 ? 1 : 2 * shared.buf->capacity, size_);
         } else {
-            // shared.buf->count > 1
+            // shared.buf not unique
             shared.buf = shared.buf->copy_and_unshare(shared.buf->capacity, size_);
         }
         new(shared.buf->values + size_) T(copy);
@@ -152,7 +152,7 @@ void optimized_storage<T>::assign(size_t size, T value) {
     if (is_small_object) {
         std::fill(shared.values, shared.values + size, value);
     } else {
-        if (shared.buf->count > 1) {
+        if (shared.buf->not_unique()) {
             shared.buf = shared.buf->copy_and_unshare(size, size_);
         }
         std::fill(shared.buf->values, shared.buf->values + size, value);
@@ -171,7 +171,7 @@ void optimized_storage<T>::resize(size_t size, T const& value) {
         }
     } else {
         // if buf should increase capacity OR we have to copy buf to fill size_..size with value
-        if (size > shared.buf->capacity || (size > size_ && shared.buf->count > 1)) {
+        if (size > shared.buf->capacity || (size > size_ && shared.buf->not_unique())) {
             // size > shared.buf->capacity ==> size > size_
             T copy(value);
             shared.buf = shared.buf->copy_and_unshare(std::max(size, shared.buf->capacity), size_);
